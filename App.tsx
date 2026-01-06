@@ -35,21 +35,26 @@ const App: React.FC = () => {
   // Load from local storage
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      setProducts(JSON.parse(saved));
-    } else {
+    const parsed = saved ? JSON.parse(saved) : [];
+    
+    // Carrega mock se estiver vazio ou não existir para facilitar o teste inicial
+    if (parsed.length === 0) {
       const mock: Product[] = [
-        { id: '1', name: 'Leite Semi-Desnatado', category: 'Laticínios', expiryDate: '2023-10-01', quantity: 3, barcode: '7891234567890', createdAt: Date.now() },
+        { id: '1', name: 'Leite Semi-Desnatado', category: 'Laticínios', expiryDate: new Date(Date.now() - 5*24*60*60*1000).toISOString().split('T')[0], quantity: 3, barcode: '7891234567890', createdAt: Date.now() },
         { id: '2', name: 'Iogurte Natural', category: 'Laticínios', expiryDate: new Date(Date.now() + 3*24*60*60*1000).toISOString().split('T')[0], quantity: 2, barcode: '7894561234567', createdAt: Date.now() },
         { id: '3', name: 'Arroz 5kg', category: 'Grãos', expiryDate: new Date(Date.now() + 120*24*60*60*1000).toISOString().split('T')[0], quantity: 1, barcode: '7897897897894', createdAt: Date.now() },
       ];
       setProducts(mock);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(mock));
+    } else {
+      setProducts(parsed);
     }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
+    if (products.length > 0) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
+    }
   }, [products]);
 
   const handleAddProduct = (data: Omit<Product, 'id' | 'createdAt'>) => {
@@ -65,6 +70,7 @@ const App: React.FC = () => {
       setProducts(prev => [...prev, newProduct]);
     }
     setIsFormOpen(false);
+    setActiveTab('INVENTORY');
   };
 
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -113,7 +119,9 @@ const App: React.FC = () => {
 
   const handleDelete = (id: string) => {
     if (confirm('Tem certeza que deseja excluir este item?')) {
-      setProducts(prev => prev.filter(p => p.id !== id));
+      const updated = products.filter(p => p.id !== id);
+      setProducts(updated);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     }
   };
 
@@ -124,7 +132,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen pb-24 md:pb-0 md:pl-64 bg-slate-50">
-      {/* Hidden File Input */}
       <input 
         type="file" 
         ref={fileInputRef} 
@@ -133,13 +140,12 @@ const App: React.FC = () => {
         onChange={handleImportExcel}
       />
 
-      {/* Sidebar - Desktop Only */}
       <aside className="fixed left-0 top-0 h-full w-64 bg-white border-r border-slate-200 hidden md:flex flex-col p-6 z-40">
         <div className="flex items-center gap-3 mb-12">
           <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100">
             <CalendarClock className="text-white w-6 h-6" />
           </div>
-          <span className="text-lg font-bold text-slate-800 tracking-tight">Controle de Vencimentos</span>
+          <span className="text-lg font-bold text-slate-800 tracking-tight">Vencimentos</span>
         </div>
 
         <nav className="space-y-1 flex-1">
@@ -184,7 +190,6 @@ const App: React.FC = () => {
         </div>
       </aside>
 
-      {/* Header */}
       <header className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-100 z-30 px-6 py-4 flex items-center justify-between">
         <div className="md:hidden flex items-center gap-3">
           <CalendarClock className="text-indigo-600 w-8 h-8" />
@@ -195,7 +200,7 @@ const App: React.FC = () => {
         </h1>
         <div className="flex items-center gap-2">
            <button 
-            onClick={() => setIsFormOpen(true)}
+            onClick={() => { setEditingProduct(null); setIsFormOpen(true); }}
             className="p-2.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl transition-all"
             title="Adicionar Manual"
            >
@@ -208,26 +213,22 @@ const App: React.FC = () => {
              <ArrowDownToLine className="w-5 h-5" />
              <span className="hidden sm:inline">Exportar</span>
            </button>
-           <button 
-             onClick={() => fileInputRef.current?.click()}
-             className="flex items-center gap-2 px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl transition-all font-semibold"
-           >
-             {isImporting ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileUp className="w-5 h-5" />}
-             <span className="hidden sm:inline">Importar</span>
-           </button>
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="p-6 max-w-5xl mx-auto">
         {activeTab === 'DASHBOARD' ? (
           <Dashboard products={products} />
         ) : (
-          <ProductList products={products} onDelete={handleDelete} onEdit={handleEdit} />
+          <ProductList 
+            products={products} 
+            onDelete={handleDelete} 
+            onEdit={handleEdit} 
+            onAddManual={() => setIsFormOpen(true)}
+          />
         )}
       </main>
 
-      {/* Bottom Navigation - Mobile Only */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 flex items-center justify-around py-3 px-6 md:hidden z-40 shadow-[0_-4px_12px_rgba(0,0,0,0.05)]">
         <MobileNavButton 
           active={activeTab === 'DASHBOARD'} 
@@ -251,7 +252,6 @@ const App: React.FC = () => {
         />
       </nav>
 
-      {/* Floating Action Button - Desktop Add Manual */}
       <button 
         onClick={() => { setEditingProduct(null); setIsFormOpen(true); }}
         className="fixed bottom-8 right-8 hidden md:flex w-14 h-14 bg-indigo-600 text-white rounded-full items-center justify-center shadow-2xl hover:scale-110 active:scale-95 transition-all z-40 shadow-indigo-200"
@@ -260,7 +260,6 @@ const App: React.FC = () => {
         <PackagePlus className="w-6 h-6" />
       </button>
 
-      {/* Modals */}
       {isFormOpen && (
         <ProductForm 
           onClose={() => { setIsFormOpen(false); setEditingProduct(null); }} 
