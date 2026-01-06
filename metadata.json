@@ -1,0 +1,7 @@
+{
+  "name": "Controle de Vencimentos",
+  "description": "Controle de vencimentos",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
