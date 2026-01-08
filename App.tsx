@@ -5,7 +5,7 @@ import Dashboard from './components/Dashboard';
 import ProductList from './components/ProductList';
 import ProductForm from './components/ProductForm';
 import SmartAdd from './components/SmartAdd';
-import { parseExcelFile, exportToExcel } from './utils/excelParser';
+import { parseExcelFile, exportToExcel, downloadTemplate } from './utils/excelParser';
 import { 
   Plus, 
   LayoutDashboard, 
@@ -18,7 +18,8 @@ import {
   FileUp,
   Bell,
   Loader2,
-  ArrowDownToLine
+  ArrowDownToLine,
+  FileSpreadsheet
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -38,11 +39,14 @@ const App: React.FC = () => {
     let initialProducts: Product[] = [];
     
     if (saved) {
-      initialProducts = JSON.parse(saved);
+      try {
+        initialProducts = JSON.parse(saved);
+      } catch (e) {
+        console.error("Erro ao carregar cache", e);
+      }
     }
 
-    // Se o banco estiver vazio, popula com dados de exemplo para o usuário não ver tela vazia
-    if (initialProducts.length === 0) {
+    if (!initialProducts || initialProducts.length === 0) {
       initialProducts = [
         { id: '1', name: 'Leite Semi-Desnatado', category: 'Laticínios', expiryDate: new Date(Date.now() - 2*24*60*60*1000).toISOString().split('T')[0], quantity: 3, barcode: '7891234567890', createdAt: Date.now() },
         { id: '2', name: 'Iogurte Natural', category: 'Laticínios', expiryDate: new Date(Date.now() + 5*24*60*60*1000).toISOString().split('T')[0], quantity: 2, barcode: '7894561234567', createdAt: Date.now() },
@@ -54,11 +58,8 @@ const App: React.FC = () => {
     setProducts(initialProducts);
   }, []);
 
-  // Sincroniza o estado com o banco local sempre que houver mudanças
   useEffect(() => {
-    if (products.length >= 0) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
-    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
   }, [products]);
 
   const handleAddProduct = (data: Omit<Product, 'id' | 'createdAt'>) => {
@@ -93,9 +94,9 @@ const App: React.FC = () => {
       setProducts(prev => [...prev, ...newProducts]);
       alert(`${newProducts.length} itens importados com sucesso!`);
       setActiveTab('INVENTORY');
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert("Erro ao importar planilha. Verifique o formato do arquivo.");
+      alert(`Erro na importação: ${err}`);
     } finally {
       setIsImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -104,6 +105,10 @@ const App: React.FC = () => {
 
   const handleExportExcel = () => {
     exportToExcel(products);
+  };
+
+  const handleDownloadTemplate = () => {
+    downloadTemplate();
   };
 
   const handleScanComplete = (data: { name: string, expiryDate: string, category: string, barcode?: string }) => {
@@ -165,20 +170,31 @@ const App: React.FC = () => {
           >
             Itens Salvos
           </NavButton>
-          <NavButton 
-            active={false} 
-            onClick={() => fileInputRef.current?.click()}
-            icon={isImporting ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileUp className="w-5 h-5" />}
-          >
-            Importar Dados
-          </NavButton>
-          <NavButton 
-            active={false} 
-            onClick={handleExportExcel}
-            icon={<ArrowDownToLine className="w-5 h-5" />}
-          >
-            Baixar Backup
-          </NavButton>
+          
+          <div className="pt-4 pb-2">
+            <p className="px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Planilhas</p>
+            <NavButton 
+              active={false} 
+              onClick={() => fileInputRef.current?.click()}
+              icon={isImporting ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileUp className="w-5 h-5" />}
+            >
+              Importar Excel
+            </NavButton>
+            <NavButton 
+              active={false} 
+              onClick={handleDownloadTemplate}
+              icon={<FileSpreadsheet className="w-5 h-5" />}
+            >
+              Baixar Modelo
+            </NavButton>
+            <NavButton 
+              active={false} 
+              onClick={handleExportExcel}
+              icon={<ArrowDownToLine className="w-5 h-5" />}
+            >
+              Exportar Atual
+            </NavButton>
+          </div>
         </nav>
 
         <div className="mt-auto pt-6 border-t border-slate-100">

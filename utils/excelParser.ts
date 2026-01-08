@@ -3,12 +3,18 @@ import * as XLSX from 'xlsx';
 import { Product } from '../types';
 import { formatDate } from './helpers';
 
-// Helper para buscar valores em um objeto ignorando case e espaços nos nomes das chaves
-const getFlexibleValue = (row: any, aliases: string[]) => {
-  const keys = Object.keys(row);
+/**
+ * Busca flexível de valores em uma linha da planilha.
+ * Tenta encontrar a coluna ideal baseada em uma lista de sinônimos.
+ */
+const findValueByAliases = (row: any, aliases: string[]) => {
+  const rowKeys = Object.keys(row);
   for (const alias of aliases) {
-    const target = alias.toLowerCase().trim();
-    const foundKey = keys.find(k => k.toLowerCase().trim() === target);
+    const normalizedAlias = alias.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    const foundKey = rowKeys.find(key => {
+      const normalizedKey = key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+      return normalizedKey === normalizedAlias || normalizedKey.includes(normalizedAlias);
+    });
     if (foundKey) return row[foundKey];
   }
   return undefined;
@@ -21,111 +27,128 @@ export const parseExcelFile = (file: File): Promise<Omit<Product, 'id' | 'create
     reader.onload = (e) => {
       try {
         const data = e.target?.result;
-        if (!data) throw new Error("Falha ao ler o arquivo.");
+        if (!data) throw new Error("Não foi possível ler o conteúdo do arquivo.");
 
-        // Usar ArrayBuffer (Uint8Array) é mais seguro para arquivos .xlsx
-        const workbook = XLSX.read(new Uint8Array(data as ArrayBuffer), { 
-          type: 'array', 
+        // XLSX.read com ArrayBuffer é o padrão mais seguro para .xlsx e .csv
+        const workbook = XLSX.read(data, { 
+          type: 'array',
           cellDates: true,
-          cellNF: false,
-          cellText: false 
+          cellText: false,
+          cellNF: false
         });
 
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(worksheet);
+        if (!workbook.SheetNames.length) {
+          throw new Error("O arquivo Excel parece estar vazio.");
+        }
 
-        const mappedData: Omit<Product, 'id' | 'createdAt'>[] = json.map((row: any) => {
-          const name = getFlexibleValue(row, ['Nome', 'Produto', 'Item', 'Descricao', 'Name']) || '';
-          const category = getFlexibleValue(row, ['Categoria', 'Tipo', 'Group', 'Category']) || 'Geral';
-          const quantityStr = getFlexibleValue(row, ['Quantidade', 'Qtd', 'Estoque', 'Quantity', 'Amount']);
-          const location = getFlexibleValue(row, ['Localizacao', 'Local', 'Armazenamento', 'Location']) || '';
-          const barcode = String(getFlexibleValue(row, ['Codigo de Barras', 'Barcode', 'EAN', 'GTIN', 'Codigo']) || '').trim();
-          
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const json = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+        if (json.length === 0) {
+          throw new Error("Nenhuma linha de dados encontrada na primeira aba da planilha.");
+        }
+
+        const results: Omit<Product, 'id' | 'createdAt'>[] = [];
+
+        for (const row of json as any[]) {
+          const name = findValueByAliases(row, ['Produto', 'Nome', 'Item', 'Descricao', 'Name']);
+          const expiryRaw = findValueByAliases(row, ['Validade', 'Vencimento', 'Data', 'Expiry', 'Expiration', 'Vence']);
+          const category = findValueByAliases(row, ['Categoria', 'Tipo', 'Grupo', 'Category', 'Group']) || 'Geral';
+          const quantity = findValueByAliases(row, ['Quantidade', 'Qtd', 'Estoque', 'Quantity', 'Amount']) || 1;
+          const location = findValueByAliases(row, ['Localizacao', 'Local', 'Armazenamento', 'Location', 'Setor']) || '';
+          const barcode = findValueByAliases(row, ['Codigo', 'Barcode', 'EAN', 'GTIN']) || '';
+
+          if (!name) continue; // Ignora linhas sem nome de produto
+
           let expiryDate = '';
-          const rawDate = getFlexibleValue(row, ['Validade', 'Vencimento', 'Data', 'Expiry', 'Expiration']);
-
-          if (rawDate instanceof Date) {
-            // Ajuste para evitar problemas de fuso horário na conversão de data do Excel
-            expiryDate = rawDate.toISOString().split('T')[0];
-          } else if (typeof rawDate === 'string') {
-            const parts = rawDate.split(/[-/]/);
+          if (expiryRaw instanceof Date) {
+            expiryDate = expiryRaw.toISOString().split('T')[0];
+          } else if (typeof expiryRaw === 'number') {
+            const dateObj = XLSX.SSF.parse_date_code(expiryRaw);
+            expiryDate = `${dateObj.y}-${String(dateObj.m).padStart(2, '0')}-${String(dateObj.d).padStart(2, '0')}`;
+          } else if (typeof expiryRaw === 'string' && expiryRaw.trim()) {
+            // Tenta converter DD/MM/YYYY para YYYY-MM-DD
+            const parts = expiryRaw.trim().split(/[-/.]/);
             if (parts.length === 3) {
-              // Se vier DD/MM/YYYY
-              if (parts[0].length === 2 && parts[2].length === 4) {
+              if (parts[2].length === 4) { // Formato DD/MM/YYYY
                 expiryDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-              } else {
-                expiryDate = rawDate;
+              } else if (parts[0].length === 4) { // Formato YYYY/MM/DD
+                expiryDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
               }
             } else {
-              expiryDate = rawDate;
+              expiryDate = expiryRaw;
             }
-          } else if (typeof rawDate === 'number') {
-             // Caso o Excel envie o número serial da data
-             const dateObj = XLSX.SSF.parse_date_code(rawDate);
-             expiryDate = `${dateObj.y}-${String(dateObj.m).padStart(2, '0')}-${String(dateObj.d).padStart(2, '0')}`;
           }
 
-          return {
-            name: String(name).trim(),
-            category: String(category).trim(),
-            quantity: parseInt(String(quantityStr)) || 1,
-            expiryDate,
-            location: String(location).trim(),
-            barcode: barcode !== 'undefined' ? barcode : ''
-          };
-        }).filter(item => item.name && item.expiryDate);
+          if (name && expiryDate) {
+            results.push({
+              name: String(name).trim(),
+              expiryDate,
+              category: String(category).trim(),
+              quantity: Number(quantity) || 1,
+              location: String(location).trim(),
+              barcode: String(barcode).trim()
+            });
+          }
+        }
 
-        resolve(mappedData);
-      } catch (err) {
-        console.error("Erro no Parse do Excel:", err);
-        reject(err);
+        if (results.length === 0) {
+          throw new Error("Não foi possível encontrar colunas de 'Nome' e 'Validade' válidas. Verifique os títulos das colunas.");
+        }
+
+        resolve(results);
+      } catch (err: any) {
+        reject(err.message || "Erro desconhecido ao processar planilha.");
       }
     };
 
-    reader.onerror = (err) => reject(err);
+    reader.onerror = () => reject("Erro na leitura do arquivo pelo navegador.");
     reader.readAsArrayBuffer(file);
   });
 };
 
 export const exportToExcel = (products: Product[]) => {
-  if (products.length === 0) {
-    alert("Não há produtos para exportar.");
-    return;
-  }
-
   try {
-    const exportData = products.map(p => ({
-      'Código de Barras': p.barcode || '',
+    const data = products.map(p => ({
       'Produto': p.name,
       'Validade': formatDate(p.expiryDate),
       'Categoria': p.category,
       'Quantidade': p.quantity,
-      'Localização': p.location || '',
-      'Data de Cadastro': new Date(p.createdAt).toLocaleDateString('pt-BR')
+      'Localizacao': p.location || '',
+      'Codigo de Barras': p.barcode || ''
     }));
 
-    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    const worksheet = XLSX.utils.json_to_sheet(data);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Estoque");
-
-    // Ajustar largura das colunas
-    const wscols = [
-      { wch: 20 }, // Código de Barras
-      { wch: 30 }, // Produto
-      { wch: 15 }, // Validade
-      { wch: 20 }, // Categoria
-      { wch: 12 }, // Quantidade
-      { wch: 20 }, // Localização
-      { wch: 18 }, // Cadastro
-    ];
+    
+    // Auto-ajuste de colunas simples
+    const wscols = Object.keys(data[0] || {}).map(() => ({ wch: 20 }));
     worksheet['!cols'] = wscols;
 
-    // Gerar buffer e disparar download
-    const fileName = `Estoque_${new Date().toISOString().split('T')[0]}.xlsx`;
-    XLSX.writeFile(workbook, fileName);
+    XLSX.writeFile(workbook, `Estoque_Vencimentos_${new Date().toISOString().split('T')[0]}.xlsx`);
   } catch (err) {
-    console.error("Erro ao exportar:", err);
-    alert("Ocorreu um erro ao gerar o arquivo Excel.");
+    alert("Erro ao exportar arquivo.");
   }
+};
+
+/**
+ * Gera uma planilha modelo para o usuário saber o que preencher
+ */
+export const downloadTemplate = () => {
+  const templateData = [
+    {
+      'Produto': 'Exemplo Leite',
+      'Validade': '31/12/2025',
+      'Categoria': 'Laticinios',
+      'Quantidade': 5,
+      'Localizacao': 'Armario A',
+      'Codigo de Barras': '7891234567890'
+    }
+  ];
+  const worksheet = XLSX.utils.json_to_sheet(templateData);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Modelo_Importacao");
+  XLSX.writeFile(workbook, "Modelo_Importacao_Vencimentos.xlsx");
 };
