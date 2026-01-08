@@ -41,30 +41,25 @@ export const parseExcelFile = async (file: File): Promise<ImportResult> => {
   try {
     result.diagnostics.steps.push(`Lendo arquivo: ${file.name} (${file.size} bytes)`);
     
-    // Usando arrayBuffer diretamente (mais moderno e seguro que FileReader)
     const data = await file.arrayBuffer();
-    result.diagnostics.steps.push("Arquivo carregado na memória.");
-
     const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-    result.diagnostics.steps.push("Estrutura Excel processada.");
-
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const json: any[] = XLSX.utils.sheet_to_json(sheet, { defval: "" });
     
-    if (json.length === 0) throw new Error("A planilha está vazia ou o formato não é suportado.");
+    if (json.length === 0) throw new Error("Planilha vazia.");
 
     result.diagnostics.totalRowsFound = json.length;
-    result.diagnostics.rawPreview = json.slice(0, 2);
-
-    const firstRow = json[0];
-    const keys = Object.keys(firstRow);
+    const keys = Object.keys(json[0]);
     result.diagnostics.columnsFound = keys;
 
+    // Aliases baseados na imagem do usuário
     const aliases = {
-      name: ['produto', 'nome', 'item', 'desc'],
-      expiry: ['validade', 'vencimento', 'vence', 'data', 'val'],
-      category: ['categoria', 'tipo', 'cat'],
-      quantity: ['quantidade', 'qtd', 'estoque']
+      name: ['produto', 'nome', 'item', 'descricao'],
+      expiry: ['validade', 'vencimento', 'vence', 'data', 'datadevalidade'],
+      category: ['categoria', 'tipo', 'setor'],
+      quantity: ['quantidade', 'qtd', 'estoque', 'unidades'],
+      barcode: ['codigo', 'barras', 'ean', 'gtin', 'codigodebarras'],
+      location: ['localizacao', 'local', 'prateleira', 'posicao']
     };
 
     const findKey = (rowKeys: string[], targets: string[]) => {
@@ -78,11 +73,13 @@ export const parseExcelFile = async (file: File): Promise<ImportResult> => {
       name: findKey(keys, aliases.name),
       expiry: findKey(keys, aliases.expiry),
       category: findKey(keys, aliases.category),
-      quantity: findKey(keys, aliases.quantity)
+      quantity: findKey(keys, aliases.quantity),
+      barcode: findKey(keys, aliases.barcode),
+      location: findKey(keys, aliases.location)
     };
 
     if (!colMap.name || !colMap.expiry) {
-      throw new Error(`Colunas não identificadas.\nPreciso de 'Produto' e 'Validade'.\nEncontrei apenas: ${keys.join(", ")}`);
+      throw new Error(`Colunas 'Produto' e 'Validade' são obrigatórias.`);
     }
 
     json.forEach((row, i) => {
@@ -112,35 +109,30 @@ export const parseExcelFile = async (file: File): Promise<ImportResult> => {
         name: String(name),
         expiryDate: date,
         category: colMap.category ? String(row[colMap.category] || "Geral") : "Geral",
-        quantity: colMap.quantity ? (parseInt(row[colMap.quantity]) || 1) : 1
+        quantity: colMap.quantity ? (parseInt(row[colMap.quantity]) || 1) : 1,
+        barcode: colMap.barcode ? String(row[colMap.barcode] || "") : "",
+        location: colMap.location ? String(row[colMap.location] || "") : ""
       });
       result.diagnostics.successCount++;
     });
 
     return result;
   } catch (err: any) {
-    result.diagnostics.steps.push(`FALHA CRÍTICA: ${err.message}`);
     throw { message: err.message, diagnostics: result.diagnostics };
   }
 };
 
 export const exportToExcel = (products: Product[]) => {
   const data = products.map(p => ({
+    'Código de Barras': p.barcode || '',
     'Produto': p.name,
     'Validade': formatDate(p.expiryDate),
     'Categoria': p.category,
-    'Quantidade': p.quantity
+    'Quantidade': p.quantity,
+    'Localização': p.location || ''
   }));
   const ws = XLSX.utils.json_to_sheet(data);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Estoque");
-  XLSX.writeFile(wb, "Backup.xlsx");
-};
-
-export const downloadTemplate = () => {
-  const data = [{ 'Produto': 'Item Exemplo', 'Validade': '31/12/2025', 'Categoria': 'Alimentos', 'Quantidade': 1 }];
-  const ws = XLSX.utils.json_to_sheet(data);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Modelo");
-  XLSX.writeFile(wb, "Modelo.xlsx");
+  XLSX.writeFile(wb, "Backup_Estoque.xlsx");
 };
