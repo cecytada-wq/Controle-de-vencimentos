@@ -95,8 +95,9 @@ const App: React.FC = () => {
       alert(`${newProducts.length} itens importados com sucesso!`);
       setActiveTab('INVENTORY');
     } catch (err: any) {
-      console.error(err);
-      alert(`Erro na importação: ${err}`);
+      console.error("Erro na importação:", err);
+      // Aqui usamos o erro específico retornado pelo parseExcelFile
+      alert(`Falha na importação:\n${err}`);
     } finally {
       setIsImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -192,7 +193,7 @@ const App: React.FC = () => {
               onClick={handleExportExcel}
               icon={<ArrowDownToLine className="w-5 h-5" />}
             >
-              Exportar Atual
+              Exportar Backup
             </NavButton>
           </div>
         </nav>
@@ -281,40 +282,3 @@ const App: React.FC = () => {
       {isFormOpen && (
         <ProductForm 
           onClose={() => { setIsFormOpen(false); setEditingProduct(null); }} 
-          onSubmit={handleAddProduct} 
-          initialData={editingProduct}
-        />
-      )}
-      {isScannerOpen && (
-        <SmartAdd 
-          onClose={() => setIsScannerOpen(false)} 
-          onScanComplete={handleScanComplete} 
-        />
-      )}
-    </div>
-  );
-};
-
-const NavButton = ({ active, children, onClick, icon }: any) => (
-  <button
-    onClick={onClick}
-    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold transition-all ${
-      active ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50'
-    }`}
-  >
-    {icon}
-    {children}
-  </button>
-);
-
-const MobileNavButton = ({ active, onClick, icon, label }: any) => (
-  <button 
-    onClick={onClick}
-    className={`flex flex-col items-center gap-1 ${active ? 'text-indigo-600' : 'text-slate-400'}`}
-  >
-    {icon}
-    <span className="text-[10px] font-bold uppercase tracking-wider">{label}</span>
-  </button>
-);
-
-export default App;
