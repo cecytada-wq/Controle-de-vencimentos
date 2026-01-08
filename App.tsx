@@ -30,29 +30,33 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'DASHBOARD' | 'INVENTORY'>('DASHBOARD');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const STORAGE_KEY = 'controle_vencimentos_products';
+  const STORAGE_KEY = 'controle_vencimentos_products_v2';
 
-  // Load from local storage
+  // Inicialização do "Banco de Dados" Local
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
-    const parsed = saved ? JSON.parse(saved) : [];
+    let initialProducts: Product[] = [];
     
-    // Carrega mock se estiver vazio ou não existir para facilitar o teste inicial
-    if (parsed.length === 0) {
-      const mock: Product[] = [
-        { id: '1', name: 'Leite Semi-Desnatado', category: 'Laticínios', expiryDate: new Date(Date.now() - 5*24*60*60*1000).toISOString().split('T')[0], quantity: 3, barcode: '7891234567890', createdAt: Date.now() },
-        { id: '2', name: 'Iogurte Natural', category: 'Laticínios', expiryDate: new Date(Date.now() + 3*24*60*60*1000).toISOString().split('T')[0], quantity: 2, barcode: '7894561234567', createdAt: Date.now() },
-        { id: '3', name: 'Arroz 5kg', category: 'Grãos', expiryDate: new Date(Date.now() + 120*24*60*60*1000).toISOString().split('T')[0], quantity: 1, barcode: '7897897897894', createdAt: Date.now() },
-      ];
-      setProducts(mock);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(mock));
-    } else {
-      setProducts(parsed);
+    if (saved) {
+      initialProducts = JSON.parse(saved);
     }
+
+    // Se o banco estiver vazio, popula com dados de exemplo para o usuário não ver tela vazia
+    if (initialProducts.length === 0) {
+      initialProducts = [
+        { id: '1', name: 'Leite Semi-Desnatado', category: 'Laticínios', expiryDate: new Date(Date.now() - 2*24*60*60*1000).toISOString().split('T')[0], quantity: 3, barcode: '7891234567890', createdAt: Date.now() },
+        { id: '2', name: 'Iogurte Natural', category: 'Laticínios', expiryDate: new Date(Date.now() + 5*24*60*60*1000).toISOString().split('T')[0], quantity: 2, barcode: '7894561234567', createdAt: Date.now() },
+        { id: '3', name: 'Arroz 5kg', category: 'Grãos', expiryDate: new Date(Date.now() + 45*24*60*60*1000).toISOString().split('T')[0], quantity: 1, barcode: '7897897897894', createdAt: Date.now() },
+      ];
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(initialProducts));
+    }
+    
+    setProducts(initialProducts);
   }, []);
 
+  // Sincroniza o estado com o banco local sempre que houver mudanças
   useEffect(() => {
-    if (products.length > 0) {
+    if (products.length >= 0) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
     }
   }, [products]);
@@ -119,9 +123,7 @@ const App: React.FC = () => {
 
   const handleDelete = (id: string) => {
     if (confirm('Tem certeza que deseja excluir este item?')) {
-      const updated = products.filter(p => p.id !== id);
-      setProducts(updated);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      setProducts(prev => prev.filter(p => p.id !== id));
     }
   };
 
@@ -145,7 +147,7 @@ const App: React.FC = () => {
           <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100">
             <CalendarClock className="text-white w-6 h-6" />
           </div>
-          <span className="text-lg font-bold text-slate-800 tracking-tight">Vencimentos</span>
+          <span className="text-lg font-bold text-slate-800 tracking-tight">Estoque Pro</span>
         </div>
 
         <nav className="space-y-1 flex-1">
@@ -161,21 +163,21 @@ const App: React.FC = () => {
             onClick={() => setActiveTab('INVENTORY')}
             icon={<ClipboardList className="w-5 h-5" />}
           >
-            Estoque
+            Itens Salvos
           </NavButton>
           <NavButton 
             active={false} 
             onClick={() => fileInputRef.current?.click()}
             icon={isImporting ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileUp className="w-5 h-5" />}
           >
-            Importar Excel
+            Importar Dados
           </NavButton>
           <NavButton 
             active={false} 
             onClick={handleExportExcel}
             icon={<ArrowDownToLine className="w-5 h-5" />}
           >
-            Exportar Excel
+            Baixar Backup
           </NavButton>
         </nav>
 
@@ -196,7 +198,7 @@ const App: React.FC = () => {
           <span className="text-lg font-bold text-slate-800">Controle</span>
         </div>
         <h1 className="hidden md:block text-2xl font-bold text-slate-800">
-          {activeTab === 'DASHBOARD' ? 'Visão Geral' : 'Meu Estoque'}
+          {activeTab === 'DASHBOARD' ? 'Visão Geral' : 'Gestão de Itens'}
         </h1>
         <div className="flex items-center gap-2">
            <button 
@@ -248,7 +250,7 @@ const App: React.FC = () => {
           active={activeTab === 'INVENTORY'} 
           onClick={() => setActiveTab('INVENTORY')}
           icon={<ClipboardList className="w-6 h-6" />}
-          label="Estoque"
+          label="Itens"
         />
       </nav>
 
