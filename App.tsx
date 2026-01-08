@@ -6,7 +6,7 @@ import ProductList from './components/ProductList';
 import ProductForm from './components/ProductForm';
 import SmartAdd from './components/SmartAdd';
 import { generateId } from './utils/helpers';
-import { parseExcelFile, exportToExcel, ImportResult } from './utils/excelParser';
+import { parseExcelFile, exportToExcel, downloadImportTemplate, ImportResult } from './utils/excelParser';
 import { 
   Plus, 
   LayoutDashboard, 
@@ -19,7 +19,7 @@ import {
   AlertOctagon,
   CheckCircle2,
   X,
-  Bug
+  FileSpreadsheet
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -111,9 +111,17 @@ const App: React.FC = () => {
             
             <div className="p-8 space-y-6">
               {importError ? (
-                <div className="bg-rose-50 border-l-4 border-rose-500 p-4 rounded-r-xl">
-                  <p className="text-rose-900 font-bold mb-1">Não conseguimos ler seu arquivo:</p>
-                  <p className="text-rose-700 text-sm">{importError.message}</p>
+                <div className="space-y-4">
+                  <div className="bg-rose-50 border-l-4 border-rose-500 p-4 rounded-r-xl">
+                    <p className="text-rose-900 font-bold mb-1">Não conseguimos ler seu arquivo:</p>
+                    <p className="text-rose-700 text-sm">{importError.message}</p>
+                  </div>
+                  <button 
+                    onClick={downloadImportTemplate}
+                    className="w-full flex items-center justify-center gap-2 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-colors"
+                  >
+                    <FileSpreadsheet className="w-5 h-5" /> Baixar Modelo Correto
+                  </button>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-4">
@@ -148,20 +156,21 @@ const App: React.FC = () => {
           <span className="text-lg font-black text-slate-800 tracking-tight">EstoquePró</span>
         </div>
         
-        <nav className="space-y-1 flex-1">
+        <nav className="space-y-1 flex-1 overflow-y-auto no-scrollbar">
           <NavButton active={activeTab === 'DASHBOARD'} onClick={() => setActiveTab('DASHBOARD')} icon={<LayoutDashboard className="w-5 h-5" />}>Dashboard</NavButton>
           <NavButton active={activeTab === 'INVENTORY'} onClick={() => setActiveTab('INVENTORY')} icon={<ClipboardList className="w-5 h-5" />}>Inventário</NavButton>
           
           <div className="pt-8 pb-4">
             <p className="px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Arquivos</p>
             <NavButton active={false} onClick={() => fileInputRef.current?.click()} icon={isImporting ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileUp className="w-5 h-5" />}>Importar CSV / Excel</NavButton>
+            <NavButton active={false} onClick={downloadImportTemplate} icon={<FileSpreadsheet className="w-5 h-5 text-emerald-500" />}>Baixar Modelo CSV</NavButton>
             <NavButton active={false} onClick={() => exportToExcel(products)} icon={<ArrowDownToLine className="w-5 h-5" />}>Exportar Backup</NavButton>
           </div>
         </nav>
 
         <button 
           onClick={() => setIsScannerOpen(true)}
-          className="w-full py-4 bg-indigo-600 text-white rounded-2xl flex items-center justify-center gap-3 font-bold shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-colors"
+          className="w-full py-4 bg-indigo-600 text-white rounded-2xl flex items-center justify-center gap-3 font-bold shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-colors mt-4"
         >
           <Scan className="w-5 h-5" /> Scanner AI
         </button>
@@ -174,6 +183,13 @@ const App: React.FC = () => {
           <span className="text-xl font-black text-slate-800">Estoque</span>
         </div>
         <div className="flex gap-2">
+          <button 
+            onClick={downloadImportTemplate}
+            className="p-3 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 md:hidden"
+            title="Modelo CSV"
+          >
+            <FileSpreadsheet className="w-6 h-6" />
+          </button>
           <button 
             onClick={() => fileInputRef.current?.click()}
             className="p-3 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 md:hidden"
@@ -213,7 +229,7 @@ const App: React.FC = () => {
         >
           <Scan className="w-8 h-8" />
         </button>
-        <MobileNavButton active={activeTab === 'INVENTORY'} onClick={() => setActiveTab('INVENTORY')} icon={<ClipboardList className="w-6 h-6" />} label="Itens" />
+        <MobileNavButton active={activeTab === 'INVENTORY'} onClick={() => setActiveTab('INVENTORY'} icon={<ClipboardList className="w-6 h-6" />} label="Itens" />
       </nav>
 
       {/* Modais */}

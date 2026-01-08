@@ -42,11 +42,9 @@ export const parseExcelFile = async (file: File): Promise<ImportResult> => {
     const isCsv = file.name.toLowerCase().endsWith('.csv');
     result.diagnostics.steps.push(`Iniciando leitura de arquivo: ${file.name}`);
 
-    // Estratégia de leitura universal para garantir funcionamento em rede local/mobile
     const dataBuffer = await new Promise<any>((resolve, reject) => {
       const reader = new FileReader();
       if (isCsv) {
-        // Para CSV em rede local, ler como string ajuda a evitar problemas de buffer
         reader.readAsText(file, "UTF-8");
       } else {
         reader.readAsArrayBuffer(file);
@@ -57,7 +55,6 @@ export const parseExcelFile = async (file: File): Promise<ImportResult> => {
 
     let workbook;
     if (isCsv) {
-      // Se for CSV, tentamos detectar se o delimitador é ; (comum no Excel PT-BR)
       const content = dataBuffer as string;
       const delimiter = content.split('\n')[0].includes(';') ? ';' : ',';
       workbook = XLSX.read(content, { type: 'string', FS: delimiter });
@@ -103,7 +100,7 @@ export const parseExcelFile = async (file: File): Promise<ImportResult> => {
     };
 
     if (!colMap.name || !colMap.expiry) {
-      throw new Error(`Colunas obrigatórias não identificadas. Verifique se o arquivo possui 'Produto' e 'Validade'. Cabeçalhos: ${keys.join(' | ')}`);
+      throw new Error(`Colunas obrigatórias não identificadas. Certifique-se de usar os cabeçalhos do modelo.`);
     }
 
     json.forEach((row, i) => {
@@ -113,7 +110,6 @@ export const parseExcelFile = async (file: File): Promise<ImportResult> => {
       if (!name || String(name).trim() === "") return;
 
       let date = '';
-      // Tenta converter diversos formatos de data
       const dateObj = new Date(expiry);
       if (!isNaN(dateObj.getTime()) && String(expiry).includes('-')) {
         date = dateObj.toISOString().split('T')[0];
@@ -144,7 +140,6 @@ export const parseExcelFile = async (file: File): Promise<ImportResult> => {
 
     return result;
   } catch (err: any) {
-    console.error("Import Error:", err);
     throw { 
       message: err.message || "Erro ao processar arquivo.", 
       diagnostics: result.diagnostics 
@@ -165,4 +160,33 @@ export const exportToExcel = (products: Product[]) => {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Estoque");
   XLSX.writeFile(wb, "Backup_Estoque.xlsx");
+};
+
+/**
+ * Gera e baixa um arquivo CSV de exemplo para o usuário preencher
+ */
+export const downloadImportTemplate = () => {
+  const template = [
+    {
+      'Produto': 'Exemplo de Produto',
+      'Validade': '31/12/2025',
+      'Categoria': 'Alimentos',
+      'Quantidade': 10,
+      'Código de Barras': '7891234567890',
+      'Localização': 'Prateleira A'
+    }
+  ];
+  
+  const ws = XLSX.utils.json_to_sheet(template);
+  const csvOutput = XLSX.utils.sheet_to_csv(ws, { FS: ';' });
+  
+  const blob = new Blob(["\ufeff" + csvOutput], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement("a");
+  const url = URL.createObjectURL(blob);
+  link.setAttribute("href", url);
+  link.setAttribute("download", "modelo_importacao_estoque.csv");
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 };
