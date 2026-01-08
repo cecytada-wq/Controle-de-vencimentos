@@ -5,6 +5,7 @@ import Dashboard from './components/Dashboard';
 import ProductList from './components/ProductList';
 import ProductForm from './components/ProductForm';
 import SmartAdd from './components/SmartAdd';
+import { generateId } from './utils/helpers';
 import { parseExcelFile, exportToExcel, downloadTemplate, ImportResult } from './utils/excelParser';
 import { 
   Plus, 
@@ -16,11 +17,10 @@ import {
   Loader2,
   ArrowDownToLine,
   FileSpreadsheet,
-  AlertTriangle,
+  AlertOctagon,
   CheckCircle2,
   X,
-  Eye,
-  Settings
+  Bug
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -31,12 +31,11 @@ const App: React.FC = () => {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [activeTab, setActiveTab] = useState<'DASHBOARD' | 'INVENTORY'>('DASHBOARD');
   
-  // Estados de Diagnóstico
   const [importSummary, setImportSummary] = useState<ImportResult | null>(null);
   const [importError, setImportError] = useState<{message: string, diagnostics: any} | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const STORAGE_KEY = 'controle_vencimentos_products_v2';
+  const STORAGE_KEY = 'vencimentos_v3_secure';
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -58,12 +57,11 @@ const App: React.FC = () => {
     setImportError(null);
 
     try {
-      // O motor agora rejeita com um objeto de diagnóstico completo
       const result = await parseExcelFile(file);
       
       const newProducts: Product[] = result.products.map(item => ({
         ...item,
-        id: crypto.randomUUID(),
+        id: generateId(), // Função de ID segura para HTTP
         createdAt: Date.now()
       }));
       
@@ -71,8 +69,7 @@ const App: React.FC = () => {
       setImportSummary(result);
       if (newProducts.length > 0) setActiveTab('INVENTORY');
     } catch (err: any) {
-      console.error("Erro capturado no App:", err);
-      // Aqui garantimos que o erro vá para o estado e NÃO para um alert()
+      console.error("Erro na Importação:", err);
       setImportError(err);
     } finally {
       setIsImporting(false);
@@ -84,90 +81,73 @@ const App: React.FC = () => {
     <div className="min-h-screen pb-24 md:pb-0 md:pl-64 bg-slate-50">
       <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls, .csv" onChange={handleImportExcel} />
 
-      {/* MODAL DE DIAGNÓSTICO E ERROS (Z-INDEX ALTÍSSIMO) */}
+      {/* MODAL DE DIAGNÓSTICO (ESTILO NOVO PARA CONFIRMAR UPDATE) */}
       {(importSummary || importError) && (
-        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-xl z-[9999] flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden my-8">
-            <div className={`px-10 py-8 flex items-center justify-between border-b ${importError ? 'bg-rose-50 border-rose-100' : 'bg-emerald-50 border-emerald-100'}`}>
-              <div className="flex items-center gap-4">
-                {importError ? <AlertTriangle className="text-rose-600 w-8 h-8" /> : <CheckCircle2 className="text-emerald-600 w-8 h-8" />}
+        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-xl rounded-[2.5rem] shadow-2xl overflow-hidden animate-in slide-in-from-bottom duration-500">
+            <div className={`px-8 py-6 flex items-center justify-between border-b ${importError ? 'bg-amber-400 border-amber-500' : 'bg-emerald-500 border-emerald-600'}`}>
+              <div className="flex items-center gap-3">
+                {importError ? <AlertOctagon className="text-slate-900 w-8 h-8" /> : <CheckCircle2 className="text-white w-8 h-8" />}
                 <div>
-                  <h2 className={`text-2xl font-black ${importError ? 'text-rose-800' : 'text-emerald-800'}`}>
-                    {importError ? 'Problema na Planilha' : 'Importação Concluída'}
+                  <h2 className={`text-xl font-black ${importError ? 'text-slate-900' : 'text-white'}`}>
+                    {importError ? 'Atenção ao Importar' : 'Processado!'}
                   </h2>
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Relatório de Processamento</p>
+                  <p className={`text-[10px] font-bold uppercase tracking-widest ${importError ? 'text-slate-800' : 'text-emerald-100'}`}>
+                    Versão 3.0.1 (Patch de Segurança)
+                  </p>
                 </div>
               </div>
-              <button onClick={() => { setImportSummary(null); setImportError(null); }} className="p-3 hover:bg-black/5 rounded-full transition-colors">
-                <X className="w-8 h-8 text-slate-400" />
+              <button onClick={() => { setImportSummary(null); setImportError(null); }} className="p-2 bg-black/10 rounded-full hover:bg-black/20 transition-colors">
+                <X className={`w-6 h-6 ${importError ? 'text-slate-900' : 'text-white'}`} />
               </button>
             </div>
             
-            <div className="p-10 space-y-8">
+            <div className="p-8 space-y-6">
               {importError ? (
-                <div className="space-y-6">
-                  <div className="bg-rose-50 border-2 border-rose-100 p-6 rounded-[2rem]">
-                    <p className="text-rose-900 font-bold text-lg mb-2">Erro Detectado:</p>
-                    <p className="text-rose-700 leading-relaxed whitespace-pre-line">{importError.message}</p>
+                <div className="space-y-4">
+                  <div className="bg-slate-50 border-l-4 border-amber-400 p-4 rounded-r-xl">
+                    <p className="text-slate-900 font-bold mb-1">Motivo do bloqueio:</p>
+                    <p className="text-slate-600 text-sm whitespace-pre-line">{importError.message}</p>
                   </div>
 
-                  <div className="space-y-4">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
-                      <Settings className="w-3 h-3" /> Logs de Depuração:
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                      <Bug className="w-3 h-3" /> Logs Técnicos:
                     </p>
-                    <div className="bg-slate-900 text-indigo-300 p-6 rounded-2xl text-[11px] font-mono overflow-x-auto max-h-40 no-scrollbar">
-                      {importError.diagnostics?.steps?.map((step: string, i: number) => (
-                        <div key={i} className="mb-1 opacity-80">> {step}</div>
+                    <div className="bg-slate-900 text-emerald-400 p-4 rounded-xl text-[10px] font-mono overflow-y-auto max-h-40">
+                      {importError.diagnostics?.steps?.map((s: string, i: number) => (
+                        <div key={i} className="mb-1 opacity-70">> {s}</div>
                       ))}
                     </div>
                   </div>
-
-                  <div className="bg-amber-50 border border-amber-100 p-6 rounded-2xl">
-                    <p className="text-amber-800 font-bold text-sm mb-1">Como resolver?</p>
-                    <p className="text-amber-700 text-xs">Certifique-se que o arquivo é um Excel (.xlsx) válido e que a primeira linha contém os nomes das colunas (ex: "Produto", "Validade").</p>
-                  </div>
                 </div>
               ) : (
-                <div className="space-y-8">
-                  <div className="grid grid-cols-2 gap-6">
-                    <div className="bg-emerald-50 p-8 rounded-[2rem] border border-emerald-100">
-                      <p className="text-[10px] font-black text-emerald-600 uppercase mb-2 tracking-widest">Itens Criados</p>
-                      <p className="text-5xl font-black text-emerald-800">{importSummary?.diagnostics.successCount}</p>
+                <div className="space-y-6 text-center">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-slate-50 p-6 rounded-3xl">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Adicionados</p>
+                      <p className="text-4xl font-black text-slate-800">{importSummary?.diagnostics.successCount}</p>
                     </div>
-                    <div className="bg-slate-50 p-8 rounded-[2rem] border border-slate-100">
-                      <p className="text-[10px] font-black text-slate-500 uppercase mb-2 tracking-widest">Linhas Lidas</p>
-                      <p className="text-5xl font-black text-slate-800">{importSummary?.diagnostics.totalRowsFound}</p>
+                    <div className="bg-slate-50 p-6 rounded-3xl">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Lidos</p>
+                      <p className="text-4xl font-black text-slate-800">{importSummary?.diagnostics.totalRowsFound}</p>
                     </div>
                   </div>
-                  
-                  {importSummary?.diagnostics.skippedRows.length! > 0 && (
-                    <div className="space-y-3">
-                      <p className="text-xs font-black text-amber-600 uppercase tracking-widest">Linhas Ignoradas:</p>
-                      <div className="max-h-32 overflow-y-auto bg-amber-50/50 p-4 rounded-2xl border border-amber-100 text-xs text-amber-800 space-y-2">
-                        {importSummary?.diagnostics.skippedRows.map((r, i) => (
-                          <div key={i} className="flex justify-between border-b border-amber-100/50 pb-1">
-                            <span className="font-bold">Linha {r.row}</span>
-                            <span className="italic">{r.reason}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
-
+              
               <button 
                 onClick={() => { setImportSummary(null); setImportError(null); }}
-                className="w-full py-5 bg-slate-900 text-white font-black text-lg rounded-2xl hover:bg-slate-800 transition-all shadow-xl active:scale-[0.98]"
+                className="w-full py-4 bg-slate-900 text-white font-black rounded-2xl hover:bg-slate-800 transition-all active:scale-95"
               >
-                {importError ? 'Tentar Novamente' : 'Ver Inventário'}
+                Entendido
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* SIDEBAR (DESKTOP) */}
+      {/* SIDEBAR */}
       <aside className="fixed left-0 top-0 h-full w-64 bg-white border-r border-slate-200 hidden md:flex flex-col p-6 z-40">
         <div className="flex items-center gap-3 mb-12">
           <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg"><CalendarClock className="text-white w-6 h-6" /></div>
@@ -209,12 +189,12 @@ const App: React.FC = () => {
 
       {isFormOpen && <ProductForm onClose={() => { setIsFormOpen(false); setEditingProduct(null); }} onSubmit={data => {
         if (editingProduct) setProducts(prev => prev.map(p => p.id === editingProduct.id ? { ...p, ...data } : p));
-        else setProducts(prev => [...prev, { ...data, id: crypto.randomUUID(), createdAt: Date.now() }]);
+        else setProducts(prev => [...prev, { ...data, id: generateId(), createdAt: Date.now() }]);
         setIsFormOpen(false); setEditingProduct(null);
       }} initialData={editingProduct} />}
       
       {isScannerOpen && <SmartAdd onClose={() => setIsScannerOpen(false)} onScanComplete={data => {
-        setProducts(prev => [...prev, { ...data, id: crypto.randomUUID(), quantity: 1, createdAt: Date.now() }]);
+        setProducts(prev => [...prev, { ...data, id: generateId(), quantity: 1, createdAt: Date.now() }]);
         setIsScannerOpen(false); setActiveTab('INVENTORY');
       }} />}
     </div>

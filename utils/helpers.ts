@@ -1,6 +1,16 @@
 
 import { ExpiryStatus } from '../types';
 
+export const generateId = (): string => {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+  } catch (e) {}
+  // Fallback para contextos não seguros (HTTP via IP)
+  return Math.random().toString(36).substring(2) + Date.now().toString(36);
+};
+
 export const calculateDaysRemaining = (expiryDate: string): number => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -18,6 +28,7 @@ export const getExpiryStatus = (daysRemaining: number): ExpiryStatus => {
 };
 
 export const formatDate = (dateStr: string): string => {
+  if (!dateStr) return "";
   const [year, month, day] = dateStr.split('-');
   return `${day}/${month}/${year}`;
 };
