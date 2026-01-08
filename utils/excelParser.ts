@@ -40,34 +40,46 @@ export const parseExcelFile = async (file: File): Promise<ImportResult> => {
 
   try {
     const isCsv = file.name.toLowerCase().endsWith('.csv');
-    result.diagnostics.steps.push(`Processando arquivo: ${file.name} (Tipo: ${isCsv ? 'CSV' : 'Excel'})`);
-    
-    const data = await file.arrayBuffer();
-    
-    // XLSX.read lida com CSV automaticamente se o conteúdo estiver correto
-    // Codificação UTF-8 é o padrão para a maioria dos CSVs modernos
-    const workbook = XLSX.read(data, { 
-      type: 'array', 
-      cellDates: true,
-      codepage: 65001 // UTF-8
+    result.diagnostics.steps.push(`Iniciando leitura de arquivo: ${file.name}`);
+
+    // Estratégia de leitura universal para garantir funcionamento em rede local/mobile
+    const dataBuffer = await new Promise<any>((resolve, reject) => {
+      const reader = new FileReader();
+      if (isCsv) {
+        // Para CSV em rede local, ler como string ajuda a evitar problemas de buffer
+        reader.readAsText(file, "UTF-8");
+      } else {
+        reader.readAsArrayBuffer(file);
+      }
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error("Falha ao ler o arquivo no navegador."));
     });
-    
+
+    let workbook;
+    if (isCsv) {
+      // Se for CSV, tentamos detectar se o delimitador é ; (comum no Excel PT-BR)
+      const content = dataBuffer as string;
+      const delimiter = content.split('\n')[0].includes(';') ? ';' : ',';
+      workbook = XLSX.read(content, { type: 'string', FS: delimiter });
+    } else {
+      workbook = XLSX.read(dataBuffer, { type: 'array', cellDates: true });
+    }
+
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
-    
-    // Converte para JSON. Para CSVs, o SheetJS tenta detectar o delimitador (, ou ;)
-    const json: any[] = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-    
-    if (json.length === 0) throw new Error("O arquivo parece estar vazio ou não foi lido corretamente.");
+    const json: any[] = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+
+    if (json.length === 0) {
+      throw new Error("O arquivo lido está vazio ou o formato é incompatível.");
+    }
 
     result.diagnostics.totalRowsFound = json.length;
     const keys = Object.keys(json[0]);
     result.diagnostics.columnsFound = keys;
 
-    // Mapeamento flexível de colunas
     const aliases = {
       name: ['produto', 'nome', 'item', 'descricao', 'desc'],
-      expiry: ['validade', 'vencimento', 'vence', 'data', 'datadevalidade', 'expiration'],
+      expiry: ['validade', 'vencimento', 'vence', 'data', 'datadevalidade', 'expiration', 'cadastro'],
       category: ['categoria', 'tipo', 'setor', 'category'],
       quantity: ['quantidade', 'qtd', 'estoque', 'unidades', 'quantity'],
       barcode: ['codigo', 'barras', 'ean', 'gtin', 'codigodebarras', 'barcode'],
@@ -91,7 +103,7 @@ export const parseExcelFile = async (file: File): Promise<ImportResult> => {
     };
 
     if (!colMap.name || !colMap.expiry) {
-      throw new Error(`Colunas obrigatórias não encontradas. Verifique se o arquivo CSV possui os cabeçalhos 'Produto' e 'Validade'. Encontrados: ${keys.join(', ')}`);
+      throw new Error(`Colunas obrigatórias não identificadas. Verifique se o arquivo possui 'Produto' e 'Validade'. Cabeçalhos: ${keys.join(' | ')}`);
     }
 
     json.forEach((row, i) => {
@@ -101,21 +113,21 @@ export const parseExcelFile = async (file: File): Promise<ImportResult> => {
       if (!name || String(name).trim() === "") return;
 
       let date = '';
-      if (expiry instanceof Date) {
-        date = expiry.toISOString().split('T')[0];
+      // Tenta converter diversos formatos de data
+      const dateObj = new Date(expiry);
+      if (!isNaN(dateObj.getTime()) && String(expiry).includes('-')) {
+        date = dateObj.toISOString().split('T')[0];
       } else {
-        // Limpeza de string de data (remove caracteres não numéricos exceto separadores)
         const s = String(expiry).replace(/[^\d/.-]/g, '');
         const p = s.split(/[/-]/);
         if (p.length === 3) {
-          // Detecta DD/MM/YYYY ou YYYY-MM-DD
           if (p[2].length === 4) date = `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
           else if (p[0].length === 4) date = `${p[0]}-${p[1].padStart(2,'0')}-${p[2].padStart(2,'0')}`;
         }
       }
 
       if (!date || date.includes('NaN')) {
-        result.diagnostics.skippedRows.push({ row: i+2, reason: `Data de validade inválida ou vazia: ${expiry}` });
+        result.diagnostics.skippedRows.push({ row: i+2, reason: `Data inválida: ${expiry}` });
         return;
       }
 
@@ -123,7 +135,7 @@ export const parseExcelFile = async (file: File): Promise<ImportResult> => {
         name: String(name),
         expiryDate: date,
         category: colMap.category ? String(row[colMap.category] || "Geral") : "Geral",
-        quantity: colMap.quantity ? (parseInt(row[colMap.quantity]) || 1) : 1,
+        quantity: colMap.quantity ? (parseInt(row[colMap.quantity]) || 0) : 1,
         barcode: colMap.barcode ? String(row[colMap.barcode] || "") : "",
         location: colMap.location ? String(row[colMap.location] || "") : ""
       });
@@ -132,7 +144,11 @@ export const parseExcelFile = async (file: File): Promise<ImportResult> => {
 
     return result;
   } catch (err: any) {
-    throw { message: err.message, diagnostics: result.diagnostics };
+    console.error("Import Error:", err);
+    throw { 
+      message: err.message || "Erro ao processar arquivo.", 
+      diagnostics: result.diagnostics 
+    };
   }
 };
 
