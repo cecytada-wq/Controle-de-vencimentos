@@ -3,136 +3,156 @@ import * as XLSX from 'xlsx';
 import { Product } from '../types';
 import { formatDate } from './helpers';
 
-/**
- * Normaliza uma string para comparação: remove acentos, espaços extras e converte para minúsculas.
- */
-const normalizeString = (str: string): string => {
-  return str
-    .toString()
+export interface ImportResult {
+  products: Omit<Product, 'id' | 'createdAt'>[];
+  diagnostics: {
+    totalRowsFound: number;
+    successCount: number;
+    skippedRows: { row: number; reason: string }[];
+    columnsFound: string[];
+    steps: string[];
+  };
+}
+
+const normalize = (str: any): string => {
+  if (str === null || str === undefined) return "";
+  return str.toString()
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
 };
 
-/**
- * Busca flexível de valores em uma linha da planilha.
- * Tenta encontrar a coluna ideal baseada em uma lista de sinônimos.
- */
-const findValueByAliases = (row: any, aliases: string[]) => {
-  const rowKeys = Object.keys(row);
-  const normalizedAliases = aliases.map(normalizeString);
-
-  // 1. Tenta encontrar por correspondência exata normalizada
-  for (const key of rowKeys) {
-    const normKey = normalizeString(key);
-    if (normalizedAliases.includes(normKey)) {
-      return row[key];
-    }
-  }
-
-  // 2. Tenta encontrar se o cabeçalho contém algum dos aliases
-  for (const key of rowKeys) {
-    const normKey = normalizeString(key);
-    for (const alias of normalizedAliases) {
-      if (normKey.includes(alias)) {
-        return row[key];
-      }
-    }
-  }
+const findKey = (row: any, aliases: string[]): string | undefined => {
+  const keys = Object.keys(row);
+  const normalizedAliases = aliases.map(normalize);
   
-  return undefined;
+  // Busca exata
+  const exactMatch = keys.find(k => normalizedAliases.includes(normalize(k)));
+  if (exactMatch) return exactMatch;
+
+  // Busca parcial
+  return keys.find(k => {
+    const normK = normalize(k);
+    return normalizedAliases.some(alias => normK.includes(alias));
+  });
 };
 
-export const parseExcelFile = (file: File): Promise<Omit<Product, 'id' | 'createdAt'>[]> => {
+export const parseExcelFile = (file: File): Promise<ImportResult> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
+    const result: ImportResult = {
+      products: [],
+      diagnostics: {
+        totalRowsFound: 0,
+        successCount: 0,
+        skippedRows: [],
+        columnsFound: [],
+        steps: []
+      }
+    };
+
+    result.diagnostics.steps.push(`Iniciando leitura do arquivo: ${file.name}`);
 
     reader.onload = (e) => {
       try {
         const data = e.target?.result;
-        if (!data) throw new Error("O navegador não conseguiu ler o conteúdo do arquivo.");
+        if (!data) throw new Error("Conteúdo do arquivo vazio.");
 
-        // Converter ArrayBuffer para Uint8Array garante compatibilidade máxima com SheetJS (.xlsx, .xls, .csv)
+        result.diagnostics.steps.push("Arquivo lido como ArrayBuffer. Iniciando processamento SheetJS.");
+        
         const arr = new Uint8Array(data as ArrayBuffer);
-        const workbook = XLSX.read(arr, { 
-          type: 'array',
-          cellDates: true, // Importante para que datas do Excel venham como objetos Date
-          cellText: false,
-          cellNF: false
-        });
+        const workbook = XLSX.read(arr, { type: 'array', cellDates: true });
 
-        if (!workbook.SheetNames.length) throw new Error("Arquivo Excel vazio.");
-
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        if (!workbook.SheetNames.length) throw new Error("O Excel não contém abas.");
+        
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
         const json: any[] = XLSX.utils.sheet_to_json(sheet, { defval: "" });
 
-        if (json.length === 0) throw new Error("Nenhum dado encontrado na primeira aba.");
+        result.diagnostics.totalRowsFound = json.length;
+        if (json.length === 0) throw new Error("A aba '" + sheetName + "' está vazia.");
 
-        console.log("Colunas detectadas na primeira linha:", Object.keys(json[0]));
+        const firstRow = json[0];
+        result.diagnostics.columnsFound = Object.keys(firstRow);
+        result.diagnostics.steps.push(`Encontradas ${json.length} linhas e colunas: ${result.diagnostics.columnsFound.join(", ")}`);
 
-        const results: Omit<Product, 'id' | 'createdAt'>[] = [];
+        const aliases = {
+          name: ['produto', 'nome', 'item', 'descricao', 'name'],
+          expiry: ['validade', 'vencimento', 'data', 'expiry', 'expiration', 'vence'],
+          category: ['categoria', 'tipo', 'grupo', 'category'],
+          quantity: ['quantidade', 'qtd', 'estoque', 'quantity'],
+          location: ['localizacao', 'local', 'setor'],
+          barcode: ['codigo', 'barcode', 'ean', 'gtin']
+        };
 
-        for (const row of json) {
-          const name = findValueByAliases(row, ['produto', 'nome', 'item', 'descricao', 'name']);
-          const expiryRaw = findValueByAliases(row, ['validade', 'vencimento', 'data', 'expiry', 'expiration', 'vence']);
-          const category = findValueByAliases(row, ['categoria', 'tipo', 'grupo', 'category', 'group']) || 'Geral';
-          const quantity = findValueByAliases(row, ['quantidade', 'qtd', 'estoque', 'quantity', 'amount']) || 1;
-          const location = findValueByAliases(row, ['localizacao', 'local', 'setor', 'location']) || '';
-          const barcode = findValueByAliases(row, ['codigo', 'barcode', 'ean', 'gtin']) || '';
+        const colMapping = {
+          name: findKey(firstRow, aliases.name),
+          expiry: findKey(firstRow, aliases.expiry),
+          category: findKey(firstRow, aliases.category),
+          quantity: findKey(firstRow, aliases.quantity),
+          location: findKey(firstRow, aliases.location),
+          barcode: findKey(firstRow, aliases.barcode)
+        };
 
-          // Se não tiver nome, ignora a linha (pode ser rodapé ou linha vazia)
-          if (!name || String(name).trim() === "") continue;
+        if (!colMapping.name || !colMapping.expiry) {
+          throw new Error(`Colunas obrigatórias não identificadas.\nDetectadas: ${result.diagnostics.columnsFound.join(", ")}\nEsperadas: Alguma variação de 'Produto' e 'Validade'.`);
+        }
+
+        result.diagnostics.steps.push("Mapeamento de colunas concluído. Iniciando validação de dados.");
+
+        json.forEach((row, index) => {
+          const rowNum = index + 2; // +1 zero-based, +1 header row
+          const nameValue = row[colMapping.name!];
+          const expiryValue = row[colMapping.expiry!];
+
+          if (!nameValue || String(nameValue).trim() === "") {
+            result.diagnostics.skippedRows.push({ row: rowNum, reason: "Nome do produto vazio" });
+            return;
+          }
 
           let expiryDate = '';
-
-          // Lógica robusta para extração de data
-          if (expiryRaw instanceof Date) {
-            // Ajuste para fuso horário local ao converter Date do Excel
-            const offset = expiryRaw.getTimezoneOffset();
-            const adjustedDate = new Date(expiryRaw.getTime() - (offset * 60 * 1000));
-            expiryDate = adjustedDate.toISOString().split('T')[0];
-          } else if (typeof expiryRaw === 'number') {
-            const dateObj = XLSX.SSF.parse_date_code(expiryRaw);
-            expiryDate = `${dateObj.y}-${String(dateObj.m).padStart(2, '0')}-${String(dateObj.d).padStart(2, '0')}`;
-          } else if (typeof expiryRaw === 'string' && expiryRaw.trim() !== "") {
-            // Tenta converter formatos comuns de string como 31/12/2024 ou 2024-12-31
-            const parts = expiryRaw.trim().split(/[-/.]/);
+          if (expiryValue instanceof Date) {
+            const offset = expiryValue.getTimezoneOffset();
+            const adj = new Date(expiryValue.getTime() - (offset * 60 * 1000));
+            expiryDate = adj.toISOString().split('T')[0];
+          } else if (typeof expiryValue === 'number') {
+            const d = XLSX.SSF.parse_date_code(expiryValue);
+            expiryDate = `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`;
+          } else if (typeof expiryValue === 'string' && expiryValue.trim() !== "") {
+            const parts = expiryValue.trim().split(/[-/.]/);
             if (parts.length === 3) {
-              if (parts[2].length === 4) { // DD/MM/YYYY
-                expiryDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-              } else if (parts[0].length === 4) { // YYYY/MM/DD
-                expiryDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-              }
+              if (parts[2].length === 4) expiryDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+              else if (parts[0].length === 4) expiryDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
             }
           }
 
-          if (expiryDate) {
-            results.push({
-              name: String(name).trim(),
-              expiryDate,
-              category: String(category).trim(),
-              quantity: Number(quantity) || 1,
-              location: String(location).trim(),
-              barcode: String(barcode).trim()
-            });
-          } else {
-            console.warn(`Produto "${name}" ignorado por falta de data de validade válida.`, { expiryRaw });
+          if (!expiryDate) {
+            result.diagnostics.skippedRows.push({ row: rowNum, reason: `Data inválida: "${expiryValue}"` });
+            return;
           }
-        }
 
-        if (results.length === 0) {
-          throw new Error("Não foi possível encontrar as colunas de 'Nome' e 'Validade' em nenhuma linha. Use o botão 'Baixar Modelo' para ver o formato correto.");
-        }
+          result.products.push({
+            name: String(nameValue).trim(),
+            expiryDate,
+            category: colMapping.category ? String(row[colMapping.category]).trim() : 'Geral',
+            quantity: colMapping.quantity ? (Number(row[colMapping.quantity]) || 1) : 1,
+            location: colMapping.location ? String(row[colMapping.location]).trim() : '',
+            barcode: colMapping.barcode ? String(row[colMapping.barcode]).trim() : ''
+          });
+          result.diagnostics.successCount++;
+        });
 
-        resolve(results);
+        result.diagnostics.steps.push(`Processamento finalizado. Itens válidos: ${result.diagnostics.successCount}`);
+        resolve(result);
+
       } catch (err: any) {
-        console.error("Erro interno no parse:", err);
-        reject(err.message || "Falha ao processar o arquivo.");
+        result.diagnostics.steps.push(`ERRO CRÍTICO: ${err.message}`);
+        reject({ message: err.message, diagnostics: result.diagnostics });
       }
     };
 
-    reader.onerror = () => reject("Ocorreu um erro físico na leitura do arquivo.");
+    reader.onerror = () => reject({ message: "Erro físico de leitura.", diagnostics: result.diagnostics });
     reader.readAsArrayBuffer(file);
   });
 };
@@ -147,35 +167,17 @@ export const exportToExcel = (products: Product[]) => {
       'Localizacao': p.location || '',
       'Codigo de Barras': p.barcode || ''
     }));
-
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Estoque");
-    
-    const wscols = [
-      { wch: 30 }, { wch: 15 }, { wch: 20 }, { wch: 12 }, { wch: 20 }, { wch: 20 }
-    ];
-    worksheet['!cols'] = wscols;
-
-    XLSX.writeFile(workbook, `Backup_Estoque_${new Date().toISOString().split('T')[0]}.xlsx`);
-  } catch (err) {
-    alert("Erro ao exportar arquivo.");
-  }
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Estoque");
+    XLSX.writeFile(wb, `Estoque_Backup.xlsx`);
+  } catch (e) { alert("Erro ao exportar."); }
 };
 
 export const downloadTemplate = () => {
-  const templateData = [
-    {
-      'Produto': 'Exemplo Leite',
-      'Validade': '31/12/2025',
-      'Categoria': 'Laticinios',
-      'Quantidade': 10,
-      'Localizacao': 'Prateleira A',
-      'Codigo de Barras': '7890000000000'
-    }
-  ];
-  const worksheet = XLSX.utils.json_to_sheet(templateData);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Modelo");
-  XLSX.writeFile(workbook, "Modelo_Importacao_Vencimentos.xlsx");
+  const data = [{ 'Produto': 'Leite Exemplo', 'Validade': '31/12/2025', 'Categoria': 'Laticinios', 'Quantidade': 1, 'Localizacao': 'Geladeira', 'Codigo de Barras': '' }];
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Modelo");
+  XLSX.writeFile(wb, "Modelo_Importacao.xlsx");
 };
