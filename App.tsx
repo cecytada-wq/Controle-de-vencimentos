@@ -19,8 +19,7 @@ import {
   AlertOctagon,
   CheckCircle2,
   X,
-  Bug,
-  FileSpreadsheet
+  Bug
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -82,7 +81,7 @@ const App: React.FC = () => {
         type="file" 
         ref={fileInputRef} 
         className="hidden" 
-        accept=".xlsx, .xls, .csv" 
+        accept=".csv, .xlsx, .xls" 
         onChange={handleImportExcel} 
       />
 
@@ -98,7 +97,7 @@ const App: React.FC = () => {
                     {importError ? 'Erro na Importação' : 'Sucesso!'}
                   </h2>
                   <p className="text-[10px] font-bold uppercase tracking-widest opacity-80">
-                    Processamento de Planilha
+                    Processamento de Arquivo
                   </p>
                 </div>
               </div>
@@ -154,9 +153,9 @@ const App: React.FC = () => {
           <NavButton active={activeTab === 'INVENTORY'} onClick={() => setActiveTab('INVENTORY')} icon={<ClipboardList className="w-5 h-5" />}>Inventário</NavButton>
           
           <div className="pt-8 pb-4">
-            <p className="px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Ferramentas</p>
-            <NavButton active={false} onClick={() => fileInputRef.current?.click()} icon={isImporting ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileUp className="w-5 h-5" />}>Importar Planilha</NavButton>
-            <NavButton active={false} onClick={() => exportToExcel(products)} icon={<ArrowDownToLine className="w-5 h-5" />}>Exportar Excel</NavButton>
+            <p className="px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Arquivos</p>
+            <NavButton active={false} onClick={() => fileInputRef.current?.click()} icon={isImporting ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileUp className="w-5 h-5" />}>Importar CSV / Excel</NavButton>
+            <NavButton active={false} onClick={() => exportToExcel(products)} icon={<ArrowDownToLine className="w-5 h-5" />}>Exportar Backup</NavButton>
           </div>
         </nav>
 
@@ -178,7 +177,7 @@ const App: React.FC = () => {
           <button 
             onClick={() => fileInputRef.current?.click()}
             className="p-3 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 md:hidden"
-            title="Importar"
+            title="Importar CSV"
           >
             <FileUp className="w-6 h-6" />
           </button>

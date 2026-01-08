@@ -39,27 +39,39 @@ export const parseExcelFile = async (file: File): Promise<ImportResult> => {
   };
 
   try {
-    result.diagnostics.steps.push(`Lendo arquivo: ${file.name} (${file.size} bytes)`);
+    const isCsv = file.name.toLowerCase().endsWith('.csv');
+    result.diagnostics.steps.push(`Processando arquivo: ${file.name} (Tipo: ${isCsv ? 'CSV' : 'Excel'})`);
     
     const data = await file.arrayBuffer();
-    const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    
+    // XLSX.read lida com CSV automaticamente se o conteúdo estiver correto
+    // Codificação UTF-8 é o padrão para a maioria dos CSVs modernos
+    const workbook = XLSX.read(data, { 
+      type: 'array', 
+      cellDates: true,
+      codepage: 65001 // UTF-8
+    });
+    
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    
+    // Converte para JSON. Para CSVs, o SheetJS tenta detectar o delimitador (, ou ;)
     const json: any[] = XLSX.utils.sheet_to_json(sheet, { defval: "" });
     
-    if (json.length === 0) throw new Error("Planilha vazia.");
+    if (json.length === 0) throw new Error("O arquivo parece estar vazio ou não foi lido corretamente.");
 
     result.diagnostics.totalRowsFound = json.length;
     const keys = Object.keys(json[0]);
     result.diagnostics.columnsFound = keys;
 
-    // Aliases baseados na imagem do usuário
+    // Mapeamento flexível de colunas
     const aliases = {
-      name: ['produto', 'nome', 'item', 'descricao'],
-      expiry: ['validade', 'vencimento', 'vence', 'data', 'datadevalidade'],
-      category: ['categoria', 'tipo', 'setor'],
-      quantity: ['quantidade', 'qtd', 'estoque', 'unidades'],
-      barcode: ['codigo', 'barras', 'ean', 'gtin', 'codigodebarras'],
-      location: ['localizacao', 'local', 'prateleira', 'posicao']
+      name: ['produto', 'nome', 'item', 'descricao', 'desc'],
+      expiry: ['validade', 'vencimento', 'vence', 'data', 'datadevalidade', 'expiration'],
+      category: ['categoria', 'tipo', 'setor', 'category'],
+      quantity: ['quantidade', 'qtd', 'estoque', 'unidades', 'quantity'],
+      barcode: ['codigo', 'barras', 'ean', 'gtin', 'codigodebarras', 'barcode'],
+      location: ['localizacao', 'local', 'prateleira', 'posicao', 'location']
     };
 
     const findKey = (rowKeys: string[], targets: string[]) => {
@@ -79,7 +91,7 @@ export const parseExcelFile = async (file: File): Promise<ImportResult> => {
     };
 
     if (!colMap.name || !colMap.expiry) {
-      throw new Error(`Colunas 'Produto' e 'Validade' são obrigatórias.`);
+      throw new Error(`Colunas obrigatórias não encontradas. Verifique se o arquivo CSV possui os cabeçalhos 'Produto' e 'Validade'. Encontrados: ${keys.join(', ')}`);
     }
 
     json.forEach((row, i) => {
@@ -92,16 +104,18 @@ export const parseExcelFile = async (file: File): Promise<ImportResult> => {
       if (expiry instanceof Date) {
         date = expiry.toISOString().split('T')[0];
       } else {
+        // Limpeza de string de data (remove caracteres não numéricos exceto separadores)
         const s = String(expiry).replace(/[^\d/.-]/g, '');
         const p = s.split(/[/-]/);
         if (p.length === 3) {
+          // Detecta DD/MM/YYYY ou YYYY-MM-DD
           if (p[2].length === 4) date = `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
           else if (p[0].length === 4) date = `${p[0]}-${p[1].padStart(2,'0')}-${p[2].padStart(2,'0')}`;
         }
       }
 
       if (!date || date.includes('NaN')) {
-        result.diagnostics.skippedRows.push({ row: i+2, reason: `Data inválida: ${expiry}` });
+        result.diagnostics.skippedRows.push({ row: i+2, reason: `Data de validade inválida ou vazia: ${expiry}` });
         return;
       }
 
